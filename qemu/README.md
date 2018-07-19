@@ -1,6 +1,6 @@
 # Prereqs
 
-`sudo apt-get install qemu`
+* `sudo apt-get install qemu`
 
 # Some basic QEMU examples
 
@@ -79,16 +79,16 @@ Taken from (and credits available at) https://wiki.qemu.org/Testing/System_Image
   This will initialise the tap backend, creating a `tap1` device on the host. It won't add a NIC to the VM so obviously at this point there's no connectivity.
 
   Assuming `ip link` shows `tap1` as 'down' (which it should) and `ip addr` shows the device having no IP (which it shouldn't) then in order to get the device ready (from the host's POV):
-** `sudo ip link set tap1 up`
-** `sudo ip addr add 10.1.1.1/24 dev tap1`
+  * `sudo ip link set tap1 up`
+  * `sudo ip addr add 10.1.1.1/24 dev tap1`
 
   At this point, sending anything to `10.1.1.1` will be the equivalent of sending it to localhost. But sending anything to `10.1.1.2` or anything else in the `10.1.1.0/24` network will result in traffic being sent over tap1. Can see why this is the case by running `ip route` and seeing the route out through tap1. The software network is now live:
 
- Eg. Run from the host:
-** `sudo tcpdump -i tap1` and then from another terminal:
-** `ping 10.1.1.2`
-** `arping -i tap1 10.1.1.2` (Thomas Habet's arping)
-** `arping -i tap1 52:54:00:12:34:56` (where `52:54:00:12:34:56` is the default MAC addr given to the VM)
+  Eg. Run from the host:
+  * `sudo tcpdump -i tap1` and then from another terminal:
+  * `ping 10.1.1.2`
+  * `arping -i tap1 10.1.1.2` (Thomas Habet's arping)
+  * `arping -i tap1 52:54:00:12:34:56` (where `52:54:00:12:34:56` is the default MAC addr given to the VM)
 
   Using each of these `tcpdump` should show some packets travelling over the tap inteface. Even without the (ar)pings I found traffic flowing over the interface (mDNS and other). There is no NIC attached to the VM yet, so the VM won't in any way respond, but this serves to prove that the interface is live.
 
@@ -105,11 +105,11 @@ Taken from (and credits available at) https://wiki.qemu.org/Testing/System_Image
   At this point we've basically got a second network (a sofware-defined one) at 10.1.1.1/24 which is the equivalent of passing an ethernet crossover cable directly between the host and guest.
 
   If the host had IP forwarding turned on and no filtering in the way then packets from the guest that were destined for the outside world would be passed by the host:
-** on the host check 
-*** `cat /proc/sys/net/ipv4/ip_forward` is 1 (or set it so)
-*** `iptables --list -t filter` 'ACCEPT's packets on the FORWARD chain from the relevant interfaces
-** on the guest add the default route if none is available
-*** `ip route add default via 10.1.1.1 dev ens3`
+  * on the host check 
+    * `cat /proc/sys/net/ipv4/ip_forward` is 1 (or set it so)
+    * `iptables --list -t filter` 'ACCEPT's packets on the FORWARD chain from the relevant interfaces
+  * on the guest add the default route if none is available
+    * `ip route add default via 10.1.1.1 dev ens3`
 
   Now pings from the guest to, say '216.58.206.68' (www.google.com) should be passed via 10.1.1.1 (as the default gateway) and then via whatever the public adapter on the host is. They won't be responded to as the guest has an internal, unroutable, IP address. But if we do a `tcpdump -i tap1` we see the packets sent by the guest and a `tcpdump -i <outbound_iface>` then we'll see the same packets echo'd to the public network. And if we drop the address from the public interface with `ip addr del <xyz/nn> dev <outbound_iface>` while the guest is still pinging then we'll start to see the pings return 'network unreachable'.
 
@@ -129,25 +129,25 @@ Taken from (and credits available at) https://wiki.qemu.org/Testing/System_Image
 
 * create the bridge and connect the host so it has external connectivity:
 
-** `brctl addbr br0`
-** `ip addr del <addr> dev <external_iface>` (external interface must not have an address before being connected to the bridge - it will get one via the bridge)
-** `brct addif br0 <external_iface>`
+  * `brctl addbr br0`
+  * `ip addr del <addr> dev <external_iface>` (external interface must not have an address before being connected to the bridge - it will get one via the bridge)
+  * `brct addif br0 <external_iface>`
 
   At this point the external interface has been added to the bridge. The bridge acts just like an old fashion switch - it just forwards ethernet packets from one 'port' to the others, keeping a port address table so it doesn't have to broadcast on all ports all the time. So any packets arriving on the external NIC (regardless of MAC) will be forwarded over the bridge and any packets leaving interfaces attached to bridge ports will be forwarded out (assuming their external bound) the port bound to the NIC and hence the NIC itself.
 
   `ip link` will now show that the bridge has the same MAC address as the external NIC. This is how/why the NIC has its address dropped before adding to the bridge:
-** `ip link set br0 up` and possibly...
-** `dhclient br0` (or equivalent, if the network manager doesn't automatically assign it)
-** `ip addr set default via <external_addr> dev <external_iface>`
+  * `ip link set br0 up` and possibly...
+  * `dhclient br0` (or equivalent, if the network manager doesn't automatically assign it)
+  * `ip addr set default via <external_addr> dev <external_iface>`
 
   From the point of view of the host, the external NIC interface is no longer used within the normal network stack (it has no address). Instead it is attached to the bridge and the bridge provides a new software interface (with same name as the bridge) that masquerades as the same ethernet device as the real NIC, onto which we now assign/request an IP address.
 
   And finally, to give the guest some connectivity:
 
-** if the `tap1` interface still has an address associated, remove it with `ip addr del 10.1.1.1/24 dev tap1` otherwise packets will just be forwarded both on the bridge and by the kernel IP forwarding mechanism
-** `brctl addif br0 tap1`
-** inside the guest remove the static IP and let DHCP give it a new one (assuming the outside network provides DHCP):
-** `ip link set <iface> down` and `ip link set <iface> up`
+  * if the `tap1` interface still has an address associated, remove it with `ip addr del 10.1.1.1/24 dev tap1` otherwise packets will just be forwarded both on the bridge and by the kernel IP forwarding mechanism
+  * `brctl addif br0 tap1`
+  * inside the guest remove the static IP and let DHCP give it a new one (assuming the outside network provides DHCP):
+  * `ip link set <iface> down` and `ip link set <iface> up`
 
   Now the guest should have an IP assigned by the public network and pings from the guest while tcpdump'ing from the host should show requests from the new IP and successful replys from the outside world
 
