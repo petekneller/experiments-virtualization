@@ -87,3 +87,18 @@
   If we don't actually install the OS and instead just exit the installer, virt-install will exit and reboot (without the installation - cdrom - media connected) under the expectation that the installation succeeded.
 
   `virsh domblklist` and `virsh dumpxml debian-live` will now show only the hard disk and not the cdrom connected
+
+* Create a domain for an already-created VM
+
+  Using a debian disk image I'd previously created with QEMU:
+
+  `virt-install \
+              --connect qemu:///system \
+              --hvm \
+              --name debian-base \
+              --memory 512 \
+              --disk /home/pete/.qemu-vms/debian-base.img \
+              --graphics vnc \
+              --import`
+  
+  The `--import` option skips the installation phase (since we already have an installed disk) and just defines the domain and boots into the guest

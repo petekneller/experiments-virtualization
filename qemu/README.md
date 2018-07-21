@@ -108,7 +108,7 @@ Taken from (and credits available at) https://wiki.qemu.org/Testing/System_Image
   * on the host check 
     * `cat /proc/sys/net/ipv4/ip_forward` is 1 (or set it so)
     * `iptables --list -t filter` 'ACCEPT's packets on the FORWARD chain from the relevant interfaces
-  * on the guest add the default route if none is available
+    * on the guest add the default route if none is available:
     * `ip route add default via 10.1.1.1 dev ens3`
 
   Now pings from the guest to, say '216.58.206.68' (www.google.com) should be passed via 10.1.1.1 (as the default gateway) and then via whatever the public adapter on the host is. They won't be responded to as the guest has an internal, unroutable, IP address. But if we do a `tcpdump -i tap1` we see the packets sent by the guest and a `tcpdump -i <outbound_iface>` then we'll see the same packets echo'd to the public network. And if we drop the address from the public interface with `ip addr del <xyz/nn> dev <outbound_iface>` while the guest is still pinging then we'll start to see the pings return 'network unreachable'.
@@ -150,5 +150,15 @@ Taken from (and credits available at) https://wiki.qemu.org/Testing/System_Image
   * `ip link set <iface> down` and `ip link set <iface> up`
 
   Now the guest should have an IP assigned by the public network and pings from the guest while tcpdump'ing from the host should show requests from the new IP and successful replys from the outside world
+
+## How NOT to do NAT'd, bridged guests with virtual ethernet devices
+
+I wanted to set up a number of guests, on a bridge so they could talk to one another, but also NAT'd to the outside world so they weren't exposed on the public network. I set up a bridge, call it `br0` onto which I added my first guest, which had a tap interface of `tap0`. And now, instead of adding the public interface to the bridge (which would have exposed everything at layer 2) I could have given the bridge its own IP (on its `br0` interface) and set up routing and NAT between the bridge and the public interface. But instead of that (because the bridge having an IP I find a little odd) I decided to create a veth pair, put one end in the bridge and give the other end an IP, using the free end as my routing/NAT interface.
+
+Except it didn't work. I could ping the guest from the host, and vice versa. But the guest couldn't ping the outside world. `tcpdump`ing the public interface showed that the packets were being forwarded out the public interface, but with the original source IP (no NAT), so the guest was not getting any replies.
+
+After a hell of a lot of frustration I found that you can add `LOG` targets to iptables to see when rules are hit, and the POSTROUTING chain of the nat table was *not* being hit. I then found you can add `TRACE` targets to iptables and I found that the nat chain was being hit, but as the packets crossed the bridge, and not in the veth -> public crossing. Looking at the output of `conntrack -E` confirmed that the connection was being initialised as the packets traversed the bridge and as a result the nat chain wasn't being hit after that. So with this setup I can only add the masquerade rules if they can be applied while the packet is traversing the bridge. Which I can't.
+
+The quick solution was to drop the veth pair and just go back to giving the bridge an IP. Which is a bit odd because I'd still expect the packet the traverse the kernel as both traverses the bridge and the bridge -> public. But it seems to work that way. I suspect it would work okay if instead of a linux bridge I used a non-kernel based one, like OVS.
 
 ## Openvswitch
